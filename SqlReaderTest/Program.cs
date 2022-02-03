@@ -9,7 +9,7 @@ namespace SqlReaderTest
 {
     internal class Program
     {
-        const string connectionString = "Server=tcp:***.database.windows.net,1433;Initial Catalog=***;Persist Security Info=False;User ID=***;Password=***!;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
+        const string connectionString = "Server=tcp:***.database.windows.net,1433;Initial Catalog=mwtestdb;Persist Security Info=False;User ID=***;Password=***;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
 
         static async Task Main(string[] args)
         {
@@ -19,9 +19,14 @@ namespace SqlReaderTest
 
             var cts = new CancellationTokenSource();
 
+            for (int i = 0; i < 5; i++)
+            {
+                _ = Task.Factory.StartNew(() => PushCpuUsage(cts.Token));
+            }
+
             for (int i = 0; i < 100; i++)
             {
-                _ = Task.Factory.StartNew(() => TestDataReaderAsync(cts.Token));
+                _ = Task.Factory.StartNew(() => TestDataReader(cts.Token));
             }
             Console.WriteLine("Test started");
             await Task.Delay(TimeSpan.FromMinutes(10));
@@ -29,13 +34,13 @@ namespace SqlReaderTest
             Console.WriteLine("Test completed");
         }
 
-        private static async Task TestDataReaderAsync(CancellationToken cancellationToken)
+        private static async Task TestDataReader(CancellationToken cancellationToken)
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    using (var transactionScope = 
+                    using (var transactionScope =
                         new TransactionScope(TransactionScopeOption.RequiresNew, new TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted }, TransactionScopeAsyncFlowOption.Enabled))
                     using (var sqlConn = new SqlConnection(connectionString))
                     {
@@ -54,7 +59,7 @@ DELETE FROM message;
 
 SELECT CAST(NEWID() AS VARCHAR(MAX));
 ";
-                        using (var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleRow | CommandBehavior.SequentialAccess))
+                        using (var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SingleResult | CommandBehavior.SequentialAccess))
                         {
                             if (!await reader.ReadAsync())
                             {
@@ -75,6 +80,25 @@ SELECT CAST(NEWID() AS VARCHAR(MAX));
                 catch (Exception ex)
                 {
 
+                }
+            }
+        }
+
+        private static async Task PushCpuUsage(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                using (var sqlConn = new SqlConnection(connectionString))
+                {
+                    await sqlConn.OpenAsync();
+                    var cmd = sqlConn.CreateCommand();
+                    cmd.CommandTimeout = 300;
+                    cmd.CommandText = @"DECLARE @T DATETIME, @F BIGINT;
+SET @T = GETDATE();
+WHILE DATEADD(SECOND,30,@T)>GETDATE()
+SET @F=POWER(2,30);";
+                    await cmd.ExecuteNonQueryAsync();
+                    sqlConn.Close();
                 }
             }
         }
